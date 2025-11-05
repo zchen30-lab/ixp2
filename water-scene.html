@@ -68,48 +68,83 @@
         let specialFishIndex = -1;
         let time = 0;
 
-        // Water background
-        const waterCells = [];
-        const numCells = 80;
+        // Water background - dotted wave patterns
+        const waterWaves = [];
+        const numWaves = 15;
 
-        // Initialize water cells
+        // Initialize water waves
         function initWaterCells() {
-            waterCells.length = 0;
-            for (let i = 0; i < numCells; i++) {
-                waterCells.push({
+            waterWaves.length = 0;
+            for (let i = 0; i < numWaves; i++) {
+                waterWaves.push({
                     x: Math.random() * canvas.width,
                     y: Math.random() * canvas.height,
-                    radius: 40 + Math.random() * 60,
                     phase: Math.random() * Math.PI * 2,
-                    speed: 0.3 + Math.random() * 0.5
+                    speed: 0.15 + Math.random() * 0.25,
+                    maxRadius: 100 + Math.random() * 150
                 });
             }
         }
 
+        // Draw dotted concentric circles
+        function drawDottedCircle(x, y, radius, dotSize, spacing, color, opacity) {
+            const circumference = 2 * Math.PI * radius;
+            const numDots = Math.floor(circumference / spacing);
+
+            for (let i = 0; i < numDots; i++) {
+                const angle = (i / numDots) * Math.PI * 2;
+                const dotX = x + Math.cos(angle) * radius;
+                const dotY = y + Math.sin(angle) * radius;
+
+                // Vary dot size slightly for organic feel
+                const size = dotSize + (Math.sin(angle * 3 + time) * 0.5);
+
+                ctx.fillStyle = color;
+                ctx.globalAlpha = opacity;
+                ctx.beginPath();
+                ctx.arc(dotX, dotY, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
         // Draw water background
         function drawWater() {
-            // Base water color
-            ctx.fillStyle = '#4a9ece';
+            // Gradient background - soft aqua to pale blue
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#DDF7FA');
+            gradient.addColorStop(0.5, '#C8EFF7');
+            gradient.addColorStop(1, '#B8E9F5');
+            ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw cells with animation
-            for (let cell of waterCells) {
-                const offset = Math.sin(time * cell.speed + cell.phase) * 8;
-                const x = cell.x + offset;
-                const y = cell.y + Math.cos(time * cell.speed * 0.7 + cell.phase) * 6;
+            // Draw concentric dotted wave patterns
+            for (let wave of waterWaves) {
+                const pulsate = Math.sin(time * wave.speed + wave.phase);
+                const numRings = 4;
 
-                // Darker patches
-                ctx.fillStyle = 'rgba(60, 140, 180, 0.3)';
-                ctx.beginPath();
-                ctx.arc(x, y, cell.radius, 0, Math.PI * 2);
-                ctx.fill();
+                for (let ring = 0; ring < numRings; ring++) {
+                    const progress = (time * wave.speed * 0.3 + ring * 0.25) % 1;
+                    const radius = wave.maxRadius * progress;
 
-                // Lighter outline
-                ctx.strokeStyle = 'rgba(120, 180, 210, 0.4)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(x, y, cell.radius, 0, Math.PI * 2);
-                ctx.stroke();
+                    // Fade out as rings expand
+                    const fadeOpacity = (1 - progress) * 0.5;
+
+                    // Color variation: sky blue to teal
+                    const colorMix = ring / numRings;
+                    const color = colorMix < 0.5 ? '#79D1F5' : '#3FA9DD';
+
+                    // Outer rings more transparent
+                    const ringOpacity = fadeOpacity * (1 - ring / numRings * 0.5);
+
+                    // Dot spacing and size vary by ring
+                    const dotSize = 1.5 + Math.sin(pulsate) * 0.5 + ring * 0.3;
+                    const spacing = 8 + ring * 2;
+
+                    if (radius > 0 && radius < wave.maxRadius) {
+                        drawDottedCircle(wave.x, wave.y, radius, dotSize, spacing, color, ringOpacity);
+                    }
+                }
             }
         }
 
@@ -302,11 +337,27 @@
 
         function drawRipples() {
             for (let ripple of ripples) {
-                ctx.strokeStyle = `rgba(255, 255, 255, ${ripple.opacity * 0.6})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
-                ctx.stroke();
+                const progress = ripple.radius / ripple.maxRadius;
+                const numRings = 3;
+
+                for (let ring = 0; ring < numRings; ring++) {
+                    const ringOffset = ring * 15;
+                    const ringRadius = ripple.radius - ringOffset;
+
+                    if (ringRadius > 0) {
+                        // Fade based on progress and ring
+                        const ringOpacity = ripple.opacity * (1 - ring / numRings * 0.4);
+
+                        // Color: sky blue to teal
+                        const color = ring === 0 ? '#79D1F5' : '#3FA9DD';
+
+                        // Draw dotted circle for this ring
+                        const dotSize = 2 + ring * 0.5;
+                        const spacing = 10 + ring * 2;
+
+                        drawDottedCircle(ripple.x, ripple.y, ringRadius, dotSize, spacing, color, ringOpacity);
+                    }
+                }
             }
         }
 
@@ -335,13 +386,48 @@
             }
         }
 
+        // Draw dotted arc
+        function drawDottedArc(x, y, radius, startAngle, endAngle, dotSize, spacing, color, opacity) {
+            const arcLength = radius * (endAngle - startAngle);
+            const numDots = Math.floor(arcLength / spacing);
+
+            for (let i = 0; i < numDots; i++) {
+                const angle = startAngle + (i / numDots) * (endAngle - startAngle);
+                const dotX = x + Math.cos(angle) * radius;
+                const dotY = y + Math.sin(angle) * radius;
+
+                ctx.fillStyle = color;
+                ctx.globalAlpha = opacity;
+                ctx.beginPath();
+                ctx.arc(dotX, dotY, dotSize, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
         function drawWake() {
             for (let particle of wake) {
-                ctx.strokeStyle = `rgba(200, 230, 255, ${particle.opacity * 0.5})`;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
-                ctx.stroke();
+                // Draw short arcs of dotted waves
+                const numArcs = 2;
+
+                for (let arc = 0; arc < numArcs; arc++) {
+                    const arcRadius = particle.radius + arc * 8;
+                    const arcOpacity = particle.opacity * (1 - arc / numArcs * 0.3);
+
+                    // Random arc angles for organic feel
+                    const arcSpan = Math.PI * 0.6;
+                    const startAngle = arc * Math.PI * 0.3;
+                    const endAngle = startAngle + arcSpan;
+
+                    const color = arc === 0 ? '#79D1F5' : '#5CBDE8';
+                    const dotSize = 1.5;
+                    const spacing = 6;
+
+                    if (arcRadius > 0) {
+                        drawDottedArc(particle.x, particle.y, arcRadius, startAngle, endAngle,
+                                    dotSize, spacing, color, arcOpacity);
+                    }
+                }
             }
         }
 
