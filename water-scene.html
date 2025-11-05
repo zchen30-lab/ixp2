@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Water Scene</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            background: #1a5f7a;
+        }
+
+        #canvas {
+            display: block;
+            cursor: pointer;
+        }
+
+        #message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 8px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        #message.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="message"></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const messageEl = document.getElementById('message');
+
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Game state
+        let scene = 1;
+        let fish = [];
+        let ripples = [];
+        let wake = [];
+        let specialFishIndex = -1;
+        let time = 0;
+
+        // Water background
+        const waterCells = [];
+        const numCells = 80;
+
+        // Initialize water cells
+        function initWaterCells() {
+            waterCells.length = 0;
+            for (let i = 0; i < numCells; i++) {
+                waterCells.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    radius: 40 + Math.random() * 60,
+                    phase: Math.random() * Math.PI * 2,
+                    speed: 0.3 + Math.random() * 0.5
+                });
+            }
+        }
+
+        // Draw water background
+        function drawWater() {
+            // Base water color
+            ctx.fillStyle = '#4a9ece';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw cells with animation
+            for (let cell of waterCells) {
+                const offset = Math.sin(time * cell.speed + cell.phase) * 8;
+                const x = cell.x + offset;
+                const y = cell.y + Math.cos(time * cell.speed * 0.7 + cell.phase) * 6;
+
+                // Darker patches
+                ctx.fillStyle = 'rgba(60, 140, 180, 0.3)';
+                ctx.beginPath();
+                ctx.arc(x, y, cell.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Lighter outline
+                ctx.strokeStyle = 'rgba(120, 180, 210, 0.4)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(x, y, cell.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        // Fish class
+        class Fish {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.targetX = x;
+                this.targetY = y;
+                this.size = 20;
+                this.angle = 0;
+                this.state = 'normal'; // normal, jumping, escaping
+                this.jumpTime = 0;
+                this.jumpStartX = 0;
+                this.jumpStartY = 0;
+                this.jumpEndX = 0;
+                this.jumpEndY = 0;
+            }
+
+            update() {
+                if (this.state === 'jumping') {
+                    this.jumpTime += 0.02;
+                    if (this.jumpTime >= 1) {
+                        this.state = 'normal';
+                        this.x = this.jumpEndX;
+                        this.y = this.jumpEndY;
+
+                        if (scene === 1) {
+                            // Transition to scene 2
+                            transitionToScene2();
+                        }
+                    } else {
+                        // Easing function (easeInOutQuad)
+                        let t = this.jumpTime;
+                        t = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+                        this.x = this.jumpStartX + (this.jumpEndX - this.jumpStartX) * t;
+                        this.y = this.jumpStartY + (this.jumpEndY - this.jumpStartY) * t;
+
+                        // Arc effect
+                        const arcHeight = 150;
+                        this.y -= Math.sin(this.jumpTime * Math.PI) * arcHeight;
+                    }
+                    return;
+                }
+
+                if (this.state === 'escaping') {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    return;
+                }
+
+                // Normal wandering behavior
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < 5) {
+                    // Choose new target
+                    this.targetX = 50 + Math.random() * (canvas.width - 100);
+                    this.targetY = 50 + Math.random() * (canvas.height - 100);
+                } else {
+                    // Steer toward target
+                    const speed = 1.5;
+                    this.vx += (dx / dist) * 0.1;
+                    this.vy += (dy / dist) * 0.1;
+
+                    // Limit velocity
+                    const vel = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    if (vel > speed) {
+                        this.vx = (this.vx / vel) * speed;
+                        this.vy = (this.vy / vel) * speed;
+                    }
+
+                    this.x += this.vx;
+                    this.y += this.vy;
+
+                    // Update angle
+                    if (vel > 0.1) {
+                        this.angle = Math.atan2(this.vy, this.vx);
+                    }
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+
+                // Body (red oval)
+                ctx.fillStyle = '#e74c3c';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.size, this.size * 0.6, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Tail (triangle)
+                ctx.fillStyle = '#c0392b';
+                ctx.beginPath();
+                ctx.moveTo(-this.size, 0);
+                ctx.lineTo(-this.size * 1.5, -this.size * 0.4);
+                ctx.lineTo(-this.size * 1.5, this.size * 0.4);
+                ctx.closePath();
+                ctx.fill();
+
+                // Eye (white circle)
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(this.size * 0.5, 0, this.size * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Pupil
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(this.size * 0.5, 0, this.size * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            jump() {
+                this.state = 'jumping';
+                this.jumpTime = 0;
+                this.jumpStartX = this.x;
+                this.jumpStartY = this.y;
+                this.jumpEndX = this.x + (Math.random() - 0.5) * 100;
+                this.jumpEndY = this.y + (Math.random() - 0.5) * 100;
+
+                // Keep within bounds
+                this.jumpEndX = Math.max(50, Math.min(canvas.width - 50, this.jumpEndX));
+                this.jumpEndY = Math.max(50, Math.min(canvas.height - 50, this.jumpEndY));
+
+                // Create splash ripple
+                ripples.push({
+                    x: this.x,
+                    y: this.y,
+                    radius: 0,
+                    maxRadius: 100,
+                    opacity: 1
+                });
+            }
+
+            escape() {
+                this.state = 'escaping';
+                // Set velocity away from center
+                const dx = this.x - canvas.width / 2;
+                const dy = this.y - canvas.height / 2;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const speed = 15;
+                this.vx = (dx / dist) * speed;
+                this.vy = (dy / dist) * speed;
+            }
+
+            contains(px, py) {
+                const dx = this.x - px;
+                const dy = this.y - py;
+                return Math.sqrt(dx * dx + dy * dy) < this.size * 1.5;
+            }
+
+            isOffscreen() {
+                return this.x < -50 || this.x > canvas.width + 50 ||
+                       this.y < -50 || this.y > canvas.height + 50;
+            }
+        }
+
+        // Ripple system
+        function createRipple(x, y) {
+            ripples.push({
+                x: x,
+                y: y,
+                radius: 0,
+                maxRadius: 60 + Math.random() * 40,
+                opacity: 1
+            });
+        }
+
+        function updateRipples() {
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                const ripple = ripples[i];
+                ripple.radius += 2;
+                ripple.opacity -= 0.02;
+
+                if (ripple.opacity <= 0 || ripple.radius >= ripple.maxRadius) {
+                    ripples.splice(i, 1);
+                }
+            }
+        }
+
+        function drawRipples() {
+            for (let ripple of ripples) {
+                ctx.strokeStyle = `rgba(255, 255, 255, ${ripple.opacity * 0.6})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        // Wake system
+        function createWakeParticle(x, y) {
+            wake.push({
+                x: x,
+                y: y,
+                radius: 0,
+                maxRadius: 20,
+                opacity: 0.8,
+                age: 0
+            });
+        }
+
+        function updateWake() {
+            for (let i = wake.length - 1; i >= 0; i--) {
+                const particle = wake[i];
+                particle.age += 1;
+                particle.radius += 0.5;
+                particle.opacity -= 0.04;
+
+                if (particle.opacity <= 0 || particle.age > 30) {
+                    wake.splice(i, 1);
+                }
+            }
+        }
+
+        function drawWake() {
+            for (let particle of wake) {
+                ctx.strokeStyle = `rgba(200, 230, 255, ${particle.opacity * 0.5})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        // Message display
+        function showMessage(text, duration = 3000) {
+            messageEl.textContent = text;
+            messageEl.classList.add('show');
+            setTimeout(() => {
+                messageEl.classList.remove('show');
+            }, duration);
+        }
+
+        // Scene initialization
+        function initScene1() {
+            fish = [];
+            ripples = [];
+            wake = [];
+            scene = 1;
+
+            // Create one fish
+            fish.push(new Fish(canvas.width / 2, canvas.height / 2));
+        }
+
+        function transitionToScene2() {
+            fish = [];
+            ripples = [];
+            wake = [];
+            scene = 2;
+
+            // Create five fish
+            for (let i = 0; i < 5; i++) {
+                const x = 100 + Math.random() * (canvas.width - 200);
+                const y = 100 + Math.random() * (canvas.height - 200);
+                fish.push(new Fish(x, y));
+            }
+
+            // Pick a random special fish
+            specialFishIndex = Math.floor(Math.random() * fish.length);
+        }
+
+        // Mouse tracking
+        let mouseX = 0;
+        let mouseY = 0;
+        let lastWakeTime = 0;
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+
+            // Create wake particles at intervals
+            const now = Date.now();
+            if (now - lastWakeTime > 50) {
+                createWakeParticle(mouseX, mouseY);
+                lastWakeTime = now;
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            // Check if clicked on a fish
+            let fishClicked = false;
+            for (let i = 0; i < fish.length; i++) {
+                if (fish[i].contains(clickX, clickY) && fish[i].state === 'normal') {
+                    fishClicked = true;
+
+                    if (scene === 1) {
+                        fish[i].jump();
+                    } else if (scene === 2) {
+                        if (i === specialFishIndex) {
+                            fish[i].jump();
+                            showMessage('You found the playful one!');
+                        } else {
+                            fish[i].escape();
+                        }
+                    }
+                    break;
+                }
+            }
+
+            // If no fish clicked, create ripple
+            if (!fishClicked) {
+                createRipple(clickX, clickY);
+            }
+        });
+
+        // Animation loop
+        function animate() {
+            time += 0.01;
+
+            // Draw water
+            drawWater();
+
+            // Update and draw wake
+            updateWake();
+            drawWake();
+
+            // Update and draw ripples
+            updateRipples();
+            drawRipples();
+
+            // Update and draw fish
+            for (let i = fish.length - 1; i >= 0; i--) {
+                fish[i].update();
+
+                // Remove escaped fish that are off screen
+                if (fish[i].state === 'escaping' && fish[i].isOffscreen()) {
+                    fish.splice(i, 1);
+                    // Adjust special fish index if needed
+                    if (scene === 2 && i < specialFishIndex) {
+                        specialFishIndex--;
+                    }
+                } else {
+                    fish[i].draw();
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Initialize
+        initWaterCells();
+        initScene1();
+        animate();
+    </script>
+</body>
+</html>
